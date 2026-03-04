@@ -1229,7 +1229,7 @@ async function doPlantScan(){
     fd.append('images',blob,'plant.jpg');
     fd.append('organs','auto');
 
-    var res=await fetch('https://my-api.plantnet.org/v2/identify/all?api-key='+PLANTNET_KEY+'&lang=id&include-related-images=false',{
+    var res=await fetch('https://withered-hat-afd1.18400005-alan.workers.dev/?api-key='+PLANTNET_KEY,{
       method:'POST',body:fd
     });
 
