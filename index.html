@@ -149,7 +149,7 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
 .pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}
 .pcard{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;cursor:pointer;box-shadow:var(--sh);transition:opacity .15s}
 .pcard:active{opacity:.78}
-.pc-img{height:110px;display:flex;align-items:center;justify-content:center;font-size:52px;position:relative;overflow:hidden}
+.pc-img{height:130px;display:flex;align-items:center;justify-content:center;font-size:52px;position:relative;overflow:hidden}
 /* colored backgrounds cycling */
 .pc-img.bg0{background:#e8f5e2}.pc-img.bg1{background:#fef3e2}.pc-img.bg2{background:#fce4ec}.pc-img.bg3{background:#e3f2fd}.pc-img.bg4{background:#f3e5f5}.pc-img.bg5{background:#e0f7fa}
 [data-theme="dark"] .pc-img.bg0{background:rgba(91,184,71,.12)}
@@ -158,7 +158,7 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
 [data-theme="dark"] .pc-img.bg3{background:rgba(82,148,226,.1)}
 [data-theme="dark"] .pc-img.bg4{background:rgba(192,132,232,.1)}
 [data-theme="dark"] .pc-img.bg5{background:rgba(43,191,168,.1)}
-.pc-img img{width:100%;height:100%;object-fit:contain;padding:4px}
+.pc-img img{width:100%;height:100%;object-fit:cover;padding:0}
 .pc-badge{position:absolute;top:7px;right:7px;font-size:9px;font-weight:700;padding:3px 8px;border-radius:7px;border:1px solid}
 .pc-badge.good{background:var(--gp);color:var(--green);border-color:var(--gpb)}
 .pc-badge.warn{background:var(--amber-bg);color:var(--amber);border-color:var(--amber-ln)}
@@ -672,8 +672,6 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
         <select class="fsel" id="pfType" onchange="onTypeChange()"></select>
         <div id="newTypeWrap" style="display:none">
           <input class="fi" id="pfTypeNew" placeholder="Nama jenis baru..." style="margin-bottom:6px;margin-top:8px">
-          <label class="fl">Pilih Emoji</label>
-          <div class="emoji-row" id="emojiRow"></div>
         </div>
       </div>
       <div class="fg"><label class="fl">Siram Setiap</label>
@@ -744,10 +742,6 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
     <div class="sh-hd"><button class="sh-back" onclick="closeEditTypeSheet()">←</button><div class="sh-title">Edit Jenis</div></div>
     <input type="hidden" id="etId">
     <div class="fg"><label class="fl">Nama Jenis</label><input class="fi" id="etName" placeholder="Nama jenis tanaman"></div>
-    <div class="fg">
-      <label class="fl">Emoji</label>
-      <div class="emoji-row" id="etEmojiRow"></div>
-    </div>
     <button class="submt" onclick="saveEditType()">💾 Simpan Perubahan</button>
   </div>
 </div>
@@ -835,8 +829,8 @@ function healthLabel(p){var wd=daysUntil(dueDate(p.lastWater,p.water));if(wd>0)r
 function fmtDateShort(d){if(!d)return '—';return new Date(d).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});}
 function fmtDate(d){if(!d)return '—';return new Date(d).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});}
 function fmtShort(d){if(!d)return '—';return new Date(d).toLocaleDateString('id-ID',{day:'numeric',month:'short'});}
-function getTypes(){return ls('bq_types',DEF_TYPES);}
-function saveTypes(t){lsS('bq_types',t);}
+function getTypes(){return ls('bq_types_'+CU,ls('bq_types',DEF_TYPES));}
+function saveTypes(t){lsS('bq_types_'+CU,t);if(CU&&CUID){sbQ('bq_usermeta','PATCH',{meta_value:JSON.stringify(t)},'user_id=eq.'+encodeURIComponent(CUID)+'&meta_key=eq.plant_types').then(function(r){if(!r){sbQ('bq_usermeta','POST',{user_id:CUID,meta_key:'plant_types',meta_value:JSON.stringify(t)});}});}}
 function typeEmoji(id){var t=getTypes().find(function(x){return x.id===id;});return t?t.emoji:'🌿';}
 function typeLabel(id){var t=getTypes().find(function(x){return x.id===id;});return t?t.label:id;}
 function safeNote(j){if(j.note&&j.note!=='undefined'&&j.note.trim())return j.note;return JLBL[j.type]||'Catatan';}
@@ -1101,7 +1095,7 @@ function cardHtml(p){
     ?'<img src="'+p.image+'" alt="'+p.name+'" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">'
       +'<span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:44px">'+fallbackE+'</span>'
     :'<span>'+fallbackE+'</span>';
-  return '<div class="pcard" onclick="openDetail('+p.id+')">'
+  return '<div class="pcard" onclick="openDetail(\''+p.id+'\')">'
     +'<div class="pc-img">'+imgH+'<span class="pc-badge '+bcls+'">'+bico+'</span></div>'
     +'<div class="pc-info"><div class="pc-name">'+p.name+'</div><span class="pc-tag">'+typeLabel(p.type)+'</span></div>'
     +'</div>';
@@ -1297,7 +1291,7 @@ function onPlantImg(ev){
 async function savePlant(){
   var name=document.getElementById('pfName').value.trim();if(!name){toast('Nama wajib diisi!','w');return;}
   var eid=document.getElementById('pfId').value;var tv=document.getElementById('pfType').value;var type,emoji;
-  if(tv==='__new__'){var nn=document.getElementById('pfTypeNew').value.trim();if(!nn){toast('Isi nama jenis baru!','w');return;}type=nn.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');emoji=selEmoji;var types=getTypes();if(!types.find(function(t){return t.id===type;})){types.splice(types.length-1,0,{id:type,label:nn,emoji:emoji});saveTypes(types);}}
+  if(tv==='__new__'){var nn=document.getElementById('pfTypeNew').value.trim();if(!nn){toast('Isi nama jenis baru!','w');return;}type=nn.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');emoji='🌿';var types=getTypes();if(!types.find(function(t){return t.id===type;})){types.splice(types.length-1,0,{id:type,label:nn,emoji:emoji});saveTypes(types);}}
   else{type=tv;emoji=typeEmoji(type);}
   var dateVal=document.getElementById('pfDate').value;var addedAt=dateVal?new Date(dateVal).toISOString():today();
   var data={name:name,type:type,emoji:emoji,water:parseInt(document.getElementById('pfWater').value),fert:90,notes:document.getElementById('pfNotes').value.trim(),image:addImg,added:addedAt};
@@ -1542,7 +1536,7 @@ function renderMgtList(){
   types.forEach(function(t){
     var usedCount=plants.filter(function(p){return p.type===t.id;}).length;var canDelete=usedCount===0;
     html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border2)">'
-      +'<div style="width:34px;height:34px;border-radius:9px;background:var(--gp);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">'+'<span style="font-size:10px;font-weight:700;color:var(--green)">'+t.label.substring(0,3)+'</span></div>'
+      +'<div style="width:34px;height:34px;border-radius:9px;background:var(--gp);display:flex;align-items:center;justify-content:center;flex-shrink:0">'+'<span style="font-size:10px;font-weight:700;color:var(--green)">'+t.label.substring(0,3)+'</span></div>'
       +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--text)">'+t.label+'</div><div style="font-size:10px;color:var(--muted);margin-top:1px">'+usedCount+' tanaman</div></div>'
       +'<div style="display:flex;gap:5px">'
       +'<button onclick="openEditType(\''+t.id+'\')" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--card2);font-size:13px;cursor:pointer">✏️</button>'
@@ -1559,10 +1553,10 @@ function deleteType(id){
   document.getElementById('_dtY').onclick=function(){var types=getTypes().filter(function(x){return x.id!==id;});saveTypes(types);m.remove();renderMgtList();toast('Jenis dihapus 🗑️','ok');};
   document.getElementById('_dtN').onclick=function(){m.remove();};m.onclick=function(e){if(e.target===m)m.remove();};
 }
-function openEditType(id){var t=getTypes().find(function(x){return x.id===id;});if(!t)return;etSelEmoji=t.emoji;document.getElementById('etId').value=id;document.getElementById('etName').value=t.label;document.getElementById('etEmojiRow').innerHTML=EMOJIS.map(function(e){return '<button class="emoji-opt'+(e===t.emoji?' on':'')+'" onclick="pickEtEmoji(this,\''+e+'\')" type="button">'+e+'</button>';}).join('');document.getElementById('editTypeSheet').classList.add('open');}
+function openEditType(id){var t=getTypes().find(function(x){return x.id===id;});if(!t)return;document.getElementById('etId').value=id;document.getElementById('etName').value=t.label;document.getElementById('editTypeSheet').classList.add('open');}
 function closeEditTypeSheet(){document.getElementById('editTypeSheet').classList.remove('open');}
 function pickEtEmoji(btn,e){document.querySelectorAll('#etEmojiRow .emoji-opt').forEach(function(b){b.classList.remove('on');});btn.classList.add('on');etSelEmoji=e;}
-function saveEditType(){var id=document.getElementById('etId').value;var name=document.getElementById('etName').value.trim();if(!name){toast('Isi nama jenis!','w');return;}var types=getTypes();var idx=types.findIndex(function(x){return x.id===id;});if(idx>-1){types[idx].label=name;types[idx].emoji=etSelEmoji;saveTypes(types);}plants.forEach(function(p){if(p.type===id){p.emoji=etSelEmoji;}});saveL();closeEditTypeSheet();renderMgtList();popTypeSelect();toast('Jenis berhasil diupdate ✅','ok');}
+function saveEditType(){var id=document.getElementById('etId').value;var name=document.getElementById('etName').value.trim();if(!name){toast('Isi nama jenis!','w');return;}var types=getTypes();var idx=types.findIndex(function(x){return x.id===id;});if(idx>-1){types[idx].label=name;saveTypes(types);}closeEditTypeSheet();renderMgtList();popTypeSelect();toast('Jenis berhasil diupdate ✅','ok');}
 
 // ── PWA INSTALL BANNER ──
 var _deferredPrompt=null;
