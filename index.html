@@ -961,64 +961,60 @@ function showAccMenu(){
 
 // ── LOAD DATA ──
 async function loadData(){
-  // Tampilkan data lokal dulu supaya cepat
-  plants=ls('bq_p_'+CU,[]);jnls=ls('bq_j_'+CU,[]);fpCache=ls('bq_fp_'+CU,{});
-  renderAll();
-  // Selalu fetch dari server — server adalah sumber kebenaran untuk sync antar device
-  var synced=false;
-  for(var attempt=0;attempt<2;attempt++){
-    try{
-      var uid=encodeURIComponent(CUID);
-      var sbP=await sbQ('bq_plants','GET',null,'user_id=eq.'+uid+'&order=created_at.asc');
-      // sbP bisa [] (user baru/belum ada tanaman) atau null (error jaringan)
-      if(sbP===null)throw new Error('network');
-      var sbJ=await sbQ('bq_journals','GET',null,'user_id=eq.'+uid+'&order=date.desc');
-      var sbPh=await sbQ('bq_photos','GET',null,'user_id=eq.'+uid+'&order=date.desc');
-      // Pakai data server — [] berarti kosong di server (bukan error)
-      plants=sbP.map(function(r){
-        return{
-          id:r.id,name:r.name,type:r.type,emoji:r.emoji,image:r.image,
-          water:r.water_days,fert:r.fert_days,
-          lastWater:r.last_water,lastFert:r.last_fert,
-          health:r.health,notes:r.notes,added:r.added_at
-        };
-      });
-      jnls=(sbJ||[]).map(function(r){
-        return{id:r.id,plantId:r.plant_id,type:r.type,note:r.note,date:r.date};
-      });
-      fpCache={};
-      (sbPh||[]).forEach(function(p){
-        if(!fpCache[p.plant_id])fpCache[p.plant_id]=[];
-        fpCache[p.plant_id].push({id:p.id,img:p.image,date:p.date});
-      });
-      saveL();renderAll();
-      // Sync custom types dari server
-      sbQ('bq_usermeta','GET',null,'user_id=eq.'+uid+'&meta_key=eq.plant_types').then(function(res){
-        if(res&&res.length&&res[0].meta_value){
-          try{
-            var serverTypes=JSON.parse(res[0].meta_value);
-            if(serverTypes&&serverTypes.length){
-              lsS('bq_types_'+CU,serverTypes);
-              renderPlants();renderHome();
-            }
-          }catch(e){}
-        }
-      });
-      synced=true;
-      break;
-    }catch(e){
-      if(attempt===0){
-        // Tunggu sebentar lalu retry (warmup server)
-        await new Promise(function(r){setTimeout(r,1500);});
+  // Selalu fetch langsung dari server — TIDAK pakai localStorage dulu
+  // supaya data selalu sinkron antar device
+  showSyncToast();
+  try{
+    var uid=encodeURIComponent(CUID);
+    var sbP=await sbQ('bq_plants','GET',null,'user_id=eq.'+uid+'&order=created_at.asc');
+    if(sbP===null)throw new Error('network');
+    var sbJ=await sbQ('bq_journals','GET',null,'user_id=eq.'+uid+'&order=date.desc');
+    var sbPh=await sbQ('bq_photos','GET',null,'user_id=eq.'+uid+'&order=date.desc');
+    plants=sbP.map(function(r){
+      return{
+        id:r.id,name:r.name,type:r.type,emoji:r.emoji,image:r.image,
+        water:r.water_days,fert:r.fert_days,
+        lastWater:r.last_water,lastFert:r.last_fert,
+        health:r.health,notes:r.notes,added:r.added_at
+      };
+    });
+    jnls=(sbJ||[]).map(function(r){
+      return{id:r.id,plantId:r.plant_id,type:r.type,note:r.note,date:r.date};
+    });
+    fpCache={};
+    (sbPh||[]).forEach(function(p){
+      if(!fpCache[p.plant_id])fpCache[p.plant_id]=[];
+      fpCache[p.plant_id].push({id:p.id,img:p.image,date:p.date});
+    });
+    saveL();
+    hideSyncToast();
+    renderAll();
+    // Sync custom types dari server
+    sbQ('bq_usermeta','GET',null,'user_id=eq.'+uid+'&meta_key=eq.plant_types').then(function(res){
+      if(res&&res.length&&res[0].meta_value){
+        try{
+          var serverTypes=JSON.parse(res[0].meta_value);
+          if(serverTypes&&serverTypes.length){lsS('bq_types_'+CU,serverTypes);renderPlants();renderHome();}
+        }catch(e){}
       }
-    }
-  }
-  if(!synced){
-    // Pakai data lokal sebagai fallback
+    });
+  }catch(e){
+    // Server tidak bisa diakses — pakai data lokal sebagai fallback
+    hideSyncToast();
     plants=ls('bq_p_'+CU,[]);jnls=ls('bq_j_'+CU,[]);fpCache=ls('bq_fp_'+CU,{});
     renderAll();
+    toast('Offline · menampilkan data lokal','w');
   }
 }
+function showSyncToast(){
+  var el=document.getElementById('_syncBar');if(el)return;
+  var el=document.createElement('div');el.id='_syncBar';
+  el.style.cssText='position:absolute;top:0;left:0;right:0;height:3px;background:var(--gpb);z-index:9999;overflow:hidden';
+  el.innerHTML='<div style="height:100%;width:40%;background:var(--green);border-radius:2px;animation:syncSlide 1.2s ease-in-out infinite"></div>';
+  if(!document.getElementById('_syncStyle')){var s=document.createElement('style');s.id='_syncStyle';s.textContent='@keyframes syncSlide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}';document.head.appendChild(s);}
+  document.getElementById('app').appendChild(el);
+}
+function hideSyncToast(){var el=document.getElementById('_syncBar');if(el)el.remove();}
 
 // ── NAV ──
 function showScr(n){
