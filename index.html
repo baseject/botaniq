@@ -722,7 +722,6 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
         <div id="tlTxt" class="iutxt">Pilih foto progress</div>
       </div>
     </div>
-    <div class="fg"><label class="fl">Catatan (opsional)</label><textarea class="fta" id="tlNote" placeholder="Kondisi tanaman, pengamatan..." style="min-height:60px"></textarea></div>
     <button class="submt" onclick="saveTL()">💾 Simpan Foto</button>
   </div>
 </div>
@@ -1052,7 +1051,7 @@ async function loadData(){
     fpCache={};
     sbPh.forEach(function(p){
       if(!fpCache[p.plant_id])fpCache[p.plant_id]=[];
-      fpCache[p.plant_id].push({id:p.id,img:p.image,date:p.date,note:p.note||''});
+      fpCache[p.plant_id].push({id:p.id,img:p.image,date:p.date});
     });
     if(sbMeta&&sbMeta.length&&sbMeta[0].meta_value){
       try{var t=JSON.parse(sbMeta[0].meta_value);if(t&&t.length)lsS('bq_types_'+CU,t);}catch(e){}
@@ -1502,11 +1501,14 @@ function renderTLGrid(id){
   var photos=fpCache[id]||[];
   var addBtn='<div class="tl-add-inline" onclick="openTLSheet('+id+')"><div style="font-size:20px">📷</div><div style="font-size:9px;font-weight:700;color:var(--green);margin-top:3px">Tambah</div></div>';
   el.innerHTML=addBtn+photos.map(function(ph){
-    var noteHtml=ph.note?'<div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:76px">'+ph.note+'</div>':'';
-    return '<div class="tl-item" onclick="openLB(\''+ph.img+'\',\''+ph.date+'\')"><img src="'+ph.img+'" loading="lazy" alt=""><div class="tl-dt">'+fmtShort(ph.date)+noteHtml+'</div><button class="tl-del" onclick="event.stopPropagation();deleteTL('+id+',\''+ph.id+'\')">✕</button></div>';
+    return '<div class="tl-item" onclick="openLB(\''+ph.img+'\',\''+ph.date+'\')">'
+      +'<img src="'+ph.img+'" loading="lazy" alt="">'
+      +'<div class="tl-dt">'+fmtShort(ph.date)+'</div>'
+      +'<button class="tl-del" onclick="event.stopPropagation();deleteTL('+id+',\''+ph.id+'\')">✕</button>'
+      +'</div>';
   }).join('');
 }
-function openTLSheet(pid2){document.getElementById('tlPid').value=pid2;document.getElementById('tlDate').value=today();document.getElementById('tlPrev').style.display='none';document.getElementById('tlIco').style.display='block';document.getElementById('tlTxt').style.display='block';document.getElementById('tlNote').value='';tlImg=null;document.getElementById('tlSheet').classList.add('open');}
+function openTLSheet(pid2){document.getElementById('tlPid').value=pid2;document.getElementById('tlDate').value=today();document.getElementById('tlPrev').style.display='none';document.getElementById('tlIco').style.display='block';document.getElementById('tlTxt').style.display='block';tlImg=null;document.getElementById('tlSheet').classList.add('open');}
 function closeTLSheet(){document.getElementById('tlSheet').classList.remove('open');tlImg=null;}
 function onTLImg(ev){
   var f=ev.target.files[0];if(!f)return;
@@ -1524,20 +1526,16 @@ async function saveTL(){
   if(!tlImg){toast('Pilih foto dulu!','w');return;}
   var pid2=document.getElementById('tlPid').value;
   var dt=document.getElementById('tlDate').value||today();
-  var note=document.getElementById('tlNote').value.trim();
   var btn=document.querySelector('#tlSheet .submt');
   if(btn){btn.disabled=true;btn.textContent='⏳ Menyimpan...';}
   var imgToSave=tlImg;
-  // Kalau ada imgbb key, upload dulu dapat URL
   if(IMGBB_KEY){
     if(btn)btn.textContent='⏳ Mengupload...';
     var imgUrl=await uploadImg(tlImg);
     if(imgUrl&&!imgUrl.startsWith('data:')){imgToSave=imgUrl;}
   }
-  // Kirim ke server (base64 sudah sangat kecil ~50-80KB)
-  var res=await sbQ('bq_photos','POST',{user_id:CUID,plant_id:pid2,image:imgToSave,date:dt,note:note});
+  var res=await sbQ('bq_photos','POST',{user_id:CUID,plant_id:pid2,image:imgToSave,date:dt});
   if(!res||!res[0]){
-    // Cek ukuran data yang dikirim untuk debug
     var sizeKB=Math.round((imgToSave||'').length*0.75/1024);
     toast('Gagal simpan foto ('+sizeKB+'KB) — cek koneksi','e',6000);
     console.error('saveTL failed, img size:',sizeKB,'KB, pid:',pid2,'uid:',CUID);
@@ -1545,7 +1543,7 @@ async function saveTL(){
     return;
   }
   if(!fpCache[pid2])fpCache[pid2]=[];
-  fpCache[pid2].unshift({id:res[0].id,img:imgToSave,date:dt,note:note});
+  fpCache[pid2].unshift({id:res[0].id,img:imgToSave,date:dt});
   saveL();
   if(btn){btn.disabled=false;btn.textContent='💾 Simpan Foto';}
   closeTLSheet();
