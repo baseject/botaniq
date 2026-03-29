@@ -510,7 +510,7 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
 <div class="scr on" id="scr-home">
   <!-- kebun card -->
   <div class="kebun-card" id="kebunCard">
-    <div class="kebun-stats" id="kebunStats" style="margin-top:9px">
+    <div class="kebun-stats" id="kebunStats" style="margin-top:4px">
       <div class="kstat"><div class="kstat-n" id="kstatSehat">0</div><div class="kstat-l">Tanaman</div></div>
       <div class="kstat"><div class="kstat-n warn" id="kstatPerhatian">0</div><div class="kstat-l warn">Jenis</div></div>
       <div class="kstat"><div class="kstat-n bad" id="kstatKritis">0</div><div class="kstat-l bad">Perhatian</div></div>
@@ -763,6 +763,21 @@ button,input,select,textarea{font-family:'Nunito',sans-serif}
 'use strict';
 var APIURL='https://api-ruby-two-84.vercel.app';
 var PNKEY='2b10U4FggShOkdudlJPFa6Jpe';
+var IMGBB_KEY='0b7c0abd79ab5e9977b41d4e1a1a7043'; // imgbb free API
+
+// Upload foto ke imgbb, return URL atau null kalau gagal
+async function uploadImg(base64data){
+  try{
+    // Strip data URL prefix jika ada
+    var b64=base64data.indexOf(',')>-1?base64data.split(',')[1]:base64data;
+    var fd=new FormData();
+    fd.append('image',b64);
+    var r=await fetch('https://api.imgbb.com/1/upload?key='+IMGBB_KEY,{method:'POST',body:fd});
+    if(!r.ok)return null;
+    var d=await r.json();
+    return(d&&d.data&&d.data.url)?d.data.url:null;
+  }catch(e){return null;}
+}
 var CU='',CUID='',plants=[],jnls=[],fpCache={};
 function nuid(){return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)});}
 var pid=1,jid=1,pFilt='all',detId=null;
@@ -1415,7 +1430,15 @@ async function savePlant(){
     var idx=plants.findIndex(function(p){return p.id==eid;});
     if(idx>-1){
       var existingImg=plants[idx].image||null;
-      data.image=addImg!==null?addImg:existingImg;
+      var finalImg=existingImg;
+      if(addImg&&addImg!==existingImg){
+        // Ada foto baru — upload ke imgbb dulu
+        if(btn)btn.textContent='⏳ Upload foto...';
+        var uploaded=await uploadImg(addImg);
+        if(!uploaded){toast('Gagal upload foto — cek koneksi','e',3000);if(btn){btn.disabled=false;btn.textContent='💾 Simpan Tanaman';}return;}
+        finalImg=uploaded;
+      }
+      data.image=finalImg;
       // Server dulu — tidak simpan lokal kalau server gagal
       var patchRes=await sbQ('bq_plants','PATCH',{name:data.name,type:data.type,emoji:data.emoji,image:data.image,water_days:data.water,notes:data.notes,updated_at:new Date().toISOString()},'id=eq.'+eid+'&user_id=eq.'+encodeURIComponent(CUID));
       if(patchRes===null){toast('Gagal update — cek koneksi','e',3000);if(btn){btn.disabled=false;btn.textContent='💾 Simpan Tanaman';}return;}
@@ -1424,7 +1447,13 @@ async function savePlant(){
     }
   }else{
     var t=today();
-    data.image=addImg||null;
+    data.image=null;
+    if(addImg){
+      if(btn)btn.textContent='⏳ Upload foto...';
+      var uploadedNew=await uploadImg(addImg);
+      if(!uploadedNew){toast('Gagal upload foto — cek koneksi','e',3000);if(btn){btn.disabled=false;btn.textContent='💾 Simpan Tanaman';}return;}
+      data.image=uploadedNew;
+    }
     // Server dulu — pakai ID dari server
     var res=await sbQ('bq_plants','POST',{user_id:CUID,name:data.name,type:data.type,emoji:data.emoji,image:data.image,water_days:data.water,fert_days:90,last_water:t,last_fert:t,health:'good',notes:data.notes,added_at:addedAt});
     if(!res||!res[0]||!res[0].id){toast('Gagal simpan — cek koneksi','e',3000);if(btn){btn.disabled=false;btn.textContent='💾 Simpan Tanaman';}return;}
@@ -1462,25 +1491,30 @@ async function saveTL(){
   var pid2=document.getElementById('tlPid').value;
   var dt=document.getElementById('tlDate').value||today();
   var note=document.getElementById('tlNote').value.trim();
+  var btn=document.querySelector('#tlSheet .submt');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Mengupload...';}
+  // Upload ke imgbb dulu — dapat URL permanen
+  var imgUrl=await uploadImg(tlImg);
+  if(!imgUrl){
+    toast('Gagal upload foto — cek koneksi','e',4000);
+    if(btn){btn.disabled=false;btn.textContent='💾 Simpan Foto';}
+    return;
+  }
+  // Simpan URL ke server
+  var res=await sbQ('bq_photos','POST',{user_id:CUID,plant_id:pid2,image:imgUrl,date:dt,note:note});
+  if(!res||!res[0]){
+    toast('Foto terupload tapi gagal disimpan — coba lagi','e',4000);
+    if(btn){btn.disabled=false;btn.textContent='💾 Simpan Foto';}
+    return;
+  }
+  // Berhasil — simpan ke cache lokal dengan URL (bukan base64)
   if(!fpCache[pid2])fpCache[pid2]=[];
-  var newPh={id:'local_'+Date.now(),img:tlImg,date:dt,note:note};
-  fpCache[pid2].unshift(newPh);
+  fpCache[pid2].unshift({id:res[0].id,img:imgUrl,date:dt,note:note});
   saveL();
+  if(btn){btn.disabled=false;btn.textContent='💾 Simpan Foto';}
   closeTLSheet();
   renderDBody(pid2);
-  toast('Menyimpan foto...','i',2000);
-  var res=await sbQ('bq_photos','POST',{user_id:CUID,plant_id:pid2,image:tlImg,date:dt,note:note});
-  if(res&&res[0]&&res[0].id){
-    newPh.id=res[0].id;
-    saveL();
-    toast('Foto tersimpan 📸','ok');
-  }else{
-    // Gagal ke server — hapus dari cache lokal supaya tidak muncul data palsu
-    fpCache[pid2]=fpCache[pid2].filter(function(p){return p.id!==newPh.id;});
-    saveL();
-    renderDBody(pid2);
-    toast('Gagal simpan foto — cek koneksi & coba lagi','e',4000);
-  }
+  toast('Foto tersimpan 📸','ok');
 }
 function deleteTL(pid2,phId){if(!fpCache[pid2])return;fpCache[pid2]=fpCache[pid2].filter(function(p){return p.id!=phId;});saveL();renderTLGrid(pid2);sbQ('bq_photos','DELETE',null,'id=eq.'+phId+'&user_id=eq.'+encodeURIComponent(CUID));toast('Foto dihapus 🗑️','ok');}
 
@@ -1622,31 +1656,96 @@ async function doScan(){
     var fd=new FormData();fd.append('images',blob,'plant.jpg');fd.append('organs','auto');
     var resp=await fetch(APIURL+'/api/plant',{method:'POST',body:fd});var data=await resp.json();
     if(!resp.ok||!data.results||!data.results.length){document.getElementById('scanResult').innerHTML=scanErrCard('Tidak dapat mengidentifikasi. Coba foto lebih jelas.');document.getElementById('scanBtnTxt').textContent='🔍 Coba Lagi';document.getElementById('scanBtn').disabled=false;return;}
-    var r=data.results[0];var name=(r.species.commonNames&&r.species.commonNames.length)?r.species.commonNames[0]:r.species.scientificName;var sci=r.species.scientificName,conf=Math.round(r.score*100);
-    var hist=ls('bq_sh_'+CU,[])||[];hist.unshift({img:scanImg,name:name,sci:sci,conf:conf,date:today()});if(hist.length>10)hist.pop();lsS('bq_sh_'+CU,hist);
-    var alts=data.results.slice(1);
-    document.getElementById('scanResult').innerHTML='<div style="background:var(--card);border-radius:var(--r);overflow:hidden;border:1px solid var(--border);box-shadow:var(--sh)">'
-      +'<div style="background:var(--green);padding:12px;display:flex;align-items:center;gap:10px">'
-      +'<div style="width:44px;height:44px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.15);flex-shrink:0"><img src="'+scanImg+'" style="width:100%;height:100%;object-fit:cover" alt=""></div>'
-      +'<div style="flex:1"><div style="color:#fff;font-family:Fraunces,serif;font-size:16px;font-weight:700;font-style:italic;margin-bottom:2px">'+name+'</div>'
-      +'<div style="color:rgba(255,255,255,.7);font-size:10px;font-style:italic">'+sci+'</div></div>'
-      +'<div style="background:rgba(255,255,255,.2);border-radius:8px;padding:3px 9px;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">'+conf+'%</div></div>'
-      +(alts.length?'<div style="padding:10px 13px"><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:7px;letter-spacing:.08em">Kemungkinan Lain</div>'
-        +alts.map(function(r2){var n2=(r2.species.commonNames&&r2.species.commonNames.length)?r2.species.commonNames[0]:r2.species.scientificName;return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border2)"><div style="font-size:12px;color:var(--text);font-weight:500">'+n2+'<span style="font-size:10px;color:var(--muted);font-style:italic;margin-left:5px">'+r2.species.scientificName+'</span></div><span style="font-size:10px;font-weight:700;color:var(--muted)">'+Math.round(r2.score*100)+'%</span></div>';}).join('')+'</div>':'')
-      +'<div style="padding:9px 13px 13px"><button onclick="addFromScan(this)" data-name="'+name.replace(/"/g,'&quot;')+'" data-sci="'+sci.replace(/"/g,'&quot;')+'" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--green);color:#fff;font-size:13px;font-weight:700;cursor:pointer">➕ Tambah ke Koleksi</button></div></div>';
+    var r=data.results[0];
+    var name=(r.species.commonNames&&r.species.commonNames.length)?r.species.commonNames[0]:r.species.scientificName;
+    var sci=r.species.scientificName,conf=Math.round(r.score*100);
+    // Simpan ke riwayat lokal (pakai base64 hanya untuk preview riwayat)
+    var hist=ls('bq_sh_'+CU,[])||[];
+    hist.unshift({img:scanImg,name:name,sci:sci,conf:conf,date:today()});
+    if(hist.length>10)hist.pop();lsS('bq_sh_'+CU,hist);
+    var alts=data.results.slice(1,4);
+    // Encode untuk data attribute
+    var safeN=name.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    var safeSci=sci.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    document.getElementById('scanResult').innerHTML=
+      '<div style="background:var(--card);border-radius:var(--r);overflow:hidden;border:1px solid var(--border);box-shadow:var(--sh)">'
+      // Header hijau — nama + confidence
+      +'<div style="background:var(--green);padding:12px 14px;display:flex;align-items:center;gap:10px">'
+      +'<div style="width:48px;height:48px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.15);flex-shrink:0"><img src="'+scanImg+'" style="width:100%;height:100%;object-fit:cover" alt=""></div>'
+      +'<div style="flex:1;min-width:0"><div style="color:#fff;font-size:15px;font-weight:800;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+name+'</div>'
+      +'<div style="color:rgba(255,255,255,.75);font-size:10px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sci+'</div></div>'
+      +'<div style="background:rgba(255,255,255,.2);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:800;color:#fff;flex-shrink:0">'+conf+'%</div></div>'
+      // Kemungkinan lain
+      +(alts.length?'<div style="padding:8px 14px 4px"><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;letter-spacing:.08em">Kemungkinan Lain</div>'
+        +alts.map(function(r2){var n2=(r2.species.commonNames&&r2.species.commonNames.length)?r2.species.commonNames[0]:r2.species.scientificName;return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border2)"><div style="font-size:12px;color:var(--text);font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+n2+'<span style="font-size:10px;color:var(--muted);font-style:italic;margin-left:6px">'+r2.species.scientificName+'</span></div><span style="font-size:11px;font-weight:700;color:var(--muted);flex-shrink:0;margin-left:8px">'+Math.round(r2.score*100)+'%</span></div>';}).join('')+'</div>':'')
+      // Tombol aksi
+      +'<div style="padding:10px 14px 14px;display:flex;gap:8px">'
+      +'<button onclick="addFromScan(this)" data-name="'+safeN+'" data-sci="'+safeSci+'" style="flex:1;padding:11px;border-radius:11px;border:none;background:var(--green);color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif">➕ Tambah ke Koleksi</button>'
+      +'<button onclick="resetScan()" style="padding:11px 14px;border-radius:11px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif">🔄 Scan Lagi</button>'
+      +'</div></div>';
     renderScanHist();
   }catch(e){document.getElementById('scanResult').innerHTML=scanErrCard('Gagal menghubungi server. Periksa koneksi internet.');}
   document.getElementById('scanBtnTxt').textContent='🔍 Coba Foto Lain';document.getElementById('scanBtn').disabled=false;
 }
 function scanErrCard(msg){return '<div style="background:var(--red-bg);border:1px solid var(--red-ln);border-radius:12px;padding:14px;text-align:center"><div style="font-size:24px;margin-bottom:6px">😔</div><div style="font-size:13px;font-weight:600;color:var(--red)">'+msg+'</div></div>';}
 function addFromScan(btn){
-  var name=btn.dataset.name||'',sci=btn.dataset.sci||'';addImg=null;document.getElementById('pfId').value='';document.getElementById('pfName').value=name;document.getElementById('pfNotes').value='Nama ilmiah: '+sci;document.getElementById('pfPrev').style.display='none';document.getElementById('pfIco').style.display='block';document.getElementById('pfTxt').style.display='block';document.getElementById('pfWater').value='14';document.getElementById('pfDate').value=today().slice(0,10);document.getElementById('pShTitle').textContent='Tambah Tanaman';
-  popTypeSelect();document.getElementById('newTypeWrap').style.display='none';document.getElementById('pSheet').classList.add('open');
+  var name=btn.dataset.name||'',sci=btn.dataset.sci||'';
+  // Bawa foto scan ke form
+  addImg=scanImg||null;
+  document.getElementById('pfId').value='';
+  document.getElementById('pfName').value=name;
+  document.getElementById('pfNotes').value='Nama ilmiah: '+sci;
+  document.getElementById('pfWater').value='14';
+  document.getElementById('pfDate').value=today().slice(0,10);
+  document.getElementById('pShTitle').textContent='Tambah Tanaman';
+  popTypeSelect();document.getElementById('newTypeWrap').style.display='none';
+  if(addImg){
+    document.getElementById('pfPrev').src=addImg;
+    document.getElementById('pfPrev').style.display='block';
+    document.getElementById('pfIco').style.display='none';
+    document.getElementById('pfTxt').style.display='none';
+  }else{
+    document.getElementById('pfPrev').style.display='none';
+    document.getElementById('pfIco').style.display='block';
+    document.getElementById('pfTxt').style.display='block';
+  }
+  document.getElementById('pSheet').classList.add('open');
 }
 function renderScanHist(){
   var hist=ls('bq_sh_'+CU,[])||[];var el=document.getElementById('scanHist');if(!el)return;
   if(!hist.length){el.innerHTML='<div style="font-size:11px;color:var(--muted);text-align:center;padding:12px 0">Belum ada riwayat scan</div>';return;}
-  el.innerHTML=hist.slice(0,5).map(function(h){return '<div class="scan-hist-item"><img class="shi-img" src="'+(h.img||'')+'" alt=""><div style="flex:1;min-width:0"><div class="shi-name">'+h.name+'</div><div class="shi-conf">'+h.sci+' · '+h.conf+'%</div></div><div class="shi-dt">'+fmtShort(h.date)+'</div></div>';}).join('');
+  el.innerHTML=hist.slice(0,8).map(function(h,i){
+    var safeN=(h.name||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    var safeSci=(h.sci||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    return '<div class="scan-hist-item" style="align-items:flex-start">'
+      +'<img class="shi-img" src="'+(h.img||'')+'" alt="" style="flex-shrink:0;margin-top:2px">'
+      +'<div style="flex:1;min-width:0">'
+      +'<div class="shi-name">'+h.name+'</div>'
+      +'<div class="shi-conf">'+h.sci+' · '+h.conf+'%</div>'
+      +'<div style="display:flex;gap:5px;margin-top:5px">'
+      +'<button onclick="addFromScanHist('+i+')" style="padding:3px 9px;border-radius:7px;border:1px solid var(--gpb);background:var(--gp);color:var(--green);font-size:10px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif">➕ Tambah</button>'
+      +'<button onclick="deleteScanHist('+i+')" style="padding:3px 9px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif">🗑️</button>'
+      +'</div></div>'
+      +'<div class="shi-dt" style="margin-top:2px">'+fmtShort(h.date)+'</div>'
+      +'</div>';
+  }).join('');
+}
+function addFromScanHist(idx){
+  var hist=ls('bq_sh_'+CU,[])||[];var h=hist[idx];if(!h)return;
+  addImg=h.img||null;
+  document.getElementById('pfId').value='';
+  document.getElementById('pfName').value=h.name||'';
+  document.getElementById('pfNotes').value=h.sci?'Nama ilmiah: '+h.sci:'';
+  document.getElementById('pfWater').value='14';
+  document.getElementById('pfDate').value=today().slice(0,10);
+  document.getElementById('pShTitle').textContent='Tambah Tanaman';
+  popTypeSelect();document.getElementById('newTypeWrap').style.display='none';
+  if(addImg){document.getElementById('pfPrev').src=addImg;document.getElementById('pfPrev').style.display='block';document.getElementById('pfIco').style.display='none';document.getElementById('pfTxt').style.display='none';}
+  else{document.getElementById('pfPrev').style.display='none';document.getElementById('pfIco').style.display='block';document.getElementById('pfTxt').style.display='block';}
+  document.getElementById('pSheet').classList.add('open');
+}
+function deleteScanHist(idx){
+  var hist=ls('bq_sh_'+CU,[])||[];hist.splice(idx,1);lsS('bq_sh_'+CU,hist);renderScanHist();toast('Riwayat dihapus','ok',1500);
 }
 
 // ── CHECK ──
